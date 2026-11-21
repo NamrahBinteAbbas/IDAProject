@@ -1,0 +1,17 @@
+# Raw datasets (05_pharmacy_sales_data.csv is 218 MB, exceeds GitHub's 100 MB limit)
+data/
+*.csv.gz
+
+# DuckDB binary database files (re-generated anytime with python run_etl.py)
+*.duckdb
+*.duckdb.wal
+
+# Python artifacts
+__pycache__/
+*.pyc
+
+# OS & Editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
