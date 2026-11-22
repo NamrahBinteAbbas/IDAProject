@@ -132,8 +132,6 @@ quantity) to test validation. They are rejected at load time and logged in `ops.
 
 ## Report
 - `docs/Data_Generation_Report.pdf`: data generation logic, statistics, ingestion method, assumptions.
-- `docs/report/Milestone.1.SDI.DWH.Report_DRAFT.pdf`: Milestone 1 report draft (pipeline design, problems,
-  dashboards, oversampling; DWH section to be added). Source: `docs/report/Milestone1_Report_Draft.html`.
 - `docs/screenshots/`: Grafana dashboard screenshots.
 
 ## Stop / reset
