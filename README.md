@@ -58,9 +58,7 @@ The platform unifies 3 siloed operational systems:
 | **`phase1_sdi_duckdb.sql`** | SQL Script | Complete DDL, SCD Type 1 & 2 upsert logic, sequences, validation rules, fact loading, and analytical views. | 2.5% |
 | **`run_etl.py`** | Python Script | Automated pipeline runner that builds the DuckDB data mart (`dwh.duckdb`). Supports `--rebuild`. | Pipeline |
 | **`check_etl.py`** | Python Script | Verification test suite: validates financial reconciliation, foreign key integrity, executes 3 dimensional queries, and logs latency metrics. | 2.0% |
-| **`test_query.py`** | Python Script | Standalone executable for Analytical Query 1 (Channel Performance & MoM Growth). | Query 1 |
-| **`testquery2.py`** | Python Script | Standalone executable for Analytical Query 2 (Hospital Forecast vs. Consumed & Shortages). | Query 2 |
-| **`testquery3.py`** | Python Script | Standalone executable for Analytical Query 3 (Multi-Fact Drill-Across Cold Chain Fast Movers). | Query 3 |
+| **`test_queries/`** | Directory | Standalone executables for the 3 dimensional queries (`test_query1.py`, `test_query2.py`, `test_query3.py`). | Query Layer |
 | **`screenshots/`** | Directory | Terminal execution screenshots proving live query execution in DuckDB. | Evidence |
 | **`.gitignore`** | Config | Excludes the 218 MB raw sales CSV to comply with GitHub's 100 MB file limit. | Protection |
 
@@ -93,13 +91,13 @@ All 3 core queries execute with sub-second latency in DuckDB:
 
 #### Live Execution Screenshots:
 
-* **Query 1 (`test_query.py`) — Channel Revenue Split & MoM Growth:**
+* **Query 1 (`test_queries/test_query1.py`) — Channel Revenue Split & MoM Growth:**
   ![Query 1](screenshots/query1_channel_performance.jpg)
 
-* **Query 2 (`testquery2.py`) — Hospital Forecast vs. Consumption & Shortages:**
+* **Query 2 (`test_queries/test_query2.py`) — Hospital Forecast vs. Consumption & Shortages:**
   ![Query 2](screenshots/query2_hospital_shortages.jpg)
 
-* **Query 3 (`testquery3.py`) — Multi-Fact Drill-Across Fast vs. Slow Movers:**
+* **Query 3 (`test_queries/test_query3.py`) — Multi-Fact Drill-Across Fast vs. Slow Movers:**
   ![Query 3](screenshots/query3_cold_chain_fast_movers.png)
 
 ---

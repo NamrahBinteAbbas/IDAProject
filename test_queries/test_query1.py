@@ -1,6 +1,8 @@
+import pathlib
 import duckdb
 
-con = duckdb.connect("dwh.duckdb", read_only=True)
+db_file = "dwh.duckdb" if pathlib.Path("dwh.duckdb").exists() else "../dwh.duckdb"
+con = duckdb.connect(db_file, read_only=True)
 
 sql = """
 WITH monthly_channel_sales AS (
