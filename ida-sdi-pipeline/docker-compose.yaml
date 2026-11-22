@@ -1,0 +1,132 @@
+# Airflow (LocalExecutor) + two Postgres databases:
+#   airflow-db : Airflow's own bookkeeping (don't touch)
+#   pharma-db  : OUR project database -> staging + ops schemas
+#                connect from your laptop (pgAdmin/DBeaver/Power BI):
+#                host localhost, port 5433, db pharma_dwh, user pharma, password pharma
+#
+# Start:  docker compose up -d        (first time takes ~5-10 min)
+# Open:   http://localhost:8080        user: airflow  password: airflow
+#         http://localhost:8000/docs   ingestion API
+# Stop:   docker compose down          (data is kept)
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.10.5-python3.11
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    # our project database, used in the DAGs as postgres_conn_id="pharma_db"
+    AIRFLOW_CONN_PHARMA_DB: postgresql://pharma:pharma@pharma-db:5432/pharma_dwh
+    _PIP_ADDITIONAL_REQUIREMENTS: "duckdb==1.1.3"
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ./data:/opt/airflow/data
+  user: "50000:0"
+  depends_on: &airflow-depends
+    airflow-db:
+      condition: service_healthy
+    pharma-db:
+      condition: service_healthy
+
+services:
+  airflow-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+    restart: always
+
+  pharma-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: pharma
+      POSTGRES_PASSWORD: pharma
+      POSTGRES_DB: pharma_dwh
+    ports:
+      - "5433:5432"
+    volumes:
+      - pharma-db-data:/var/lib/postgresql/data
+      - ./sql/init_staging.sql:/docker-entrypoint-initdb.d/01_init_staging.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "pharma", "-d", "pharma_dwh"]
+      interval: 10s
+      retries: 5
+    restart: always
+
+  # Data Ingestion API: send new CSV files into the pipeline.
+  # Web page to try it: http://localhost:8000/docs
+  ingest-api:
+    image: python:3.11-slim
+    working_dir: /app
+    command: >
+      sh -c "pip install --no-cache-dir -q fastapi==0.115.6 uvicorn==0.32.1 python-multipart==0.0.20 psycopg2-binary==2.9.10
+      && uvicorn main:app --host 0.0.0.0 --port 8000"
+    environment:
+      DATA_DIR: /data
+      PHARMA_DB_URL: postgresql://pharma:pharma@pharma-db:5432/pharma_dwh
+    volumes:
+      - ./api:/app
+      - ./data:/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      pharma-db:
+        condition: service_healthy
+    restart: always
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        mkdir -p /opt/airflow/data/source /opt/airflow/data/incoming /opt/airflow/data/processed /opt/airflow/data/failed
+        exec /entrypoint airflow version
+    environment:
+      <<: *airflow-env
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: airflow
+      _AIRFLOW_WWW_USER_PASSWORD: airflow
+      _PIP_ADDITIONAL_REQUIREMENTS: ""   # init runs as root, pip must not run here
+    user: "0:0"
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
+    depends_on:
+      <<: *airflow-depends
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    restart: always
+    depends_on:
+      <<: *airflow-depends
+      airflow-init:
+        condition: service_completed_successfully
+
+volumes:
+  airflow-db-data:
+  pharma-db-data:

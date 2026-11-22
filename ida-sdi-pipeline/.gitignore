@@ -1,0 +1,8 @@
+# data files are too big for GitHub (sales file is 218 MB, GitHub limit is 100 MB)
+data/**/*.csv
+data/**/*.tmp
+logs/*
+!logs/.gitkeep
+__pycache__/
+*.pyc
+.env
