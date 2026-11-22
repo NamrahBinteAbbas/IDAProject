@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Milestone.1.SDI.DWH.Report</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 16mm 15mm; }
+  :root { --ink:#1d2433; --muted:#5b6475; --line:#d9dee7; --accent:#2f5d9e; --soft:#f3f6fb; }
+  body { font-family: "Segoe UI", Calibri, Arial, sans-serif; color:var(--ink); font-size:10pt; line-height:1.38; margin:0; background:#fff; }
+  h1 { font-size:17pt; margin:0 0 2px; color:var(--accent); }
+  .sub { color:var(--muted); margin:0 0 6px; }
+  .members { border:1px dashed var(--line); padding:5px 8px; color:var(--muted); font-size:9pt; margin-bottom:8px; }
+  h2 { font-size:12.5pt; margin:12px 0 4px; padding-bottom:2px; border-bottom:2px solid var(--accent); color:var(--accent); }
+  h3 { font-size:10.5pt; margin:8px 0 3px; }
+  p { margin:3px 0 5px; }
+  ul { margin:2px 0 6px 0; padding-left:17px; }
+  li { margin:1px 0; }
+  table { border-collapse:collapse; width:100%; margin:4px 0 7px; font-size:8.8pt; }
+  th, td { border:1px solid var(--line); padding:3px 5px; text-align:left; vertical-align:top; }
+  th { background:var(--soft); }
+  td.n, th.n { text-align:right; }
+  code { font-family: Consolas, monospace; font-size:8.6pt; background:var(--soft); padding:0 2px; }
+  .flow { display:flex; align-items:stretch; gap:4px; margin:6px 0 8px; font-size:8.3pt; }
+  .flow div.box { flex:1; border:1.5px solid var(--accent); border-radius:5px; padding:4px 5px; background:var(--soft); }
+  .flow div.box b { display:block; color:var(--accent); font-size:8.8pt; margin-bottom:1px; }
+  .flow div.box.next { border-style:dashed; border-color:#8a94a6; background:#fff; }
+  .flow .arr { align-self:center; color:var(--accent); font-weight:bold; }
+  figure { margin:5px 0 6px; }
+  figure img { width:100%; border:1px solid var(--line); }
+  figcaption { font-size:8.5pt; color:var(--muted); text-align:center; }
+  .placeholder { border:2px dashed #c7a23a; background:#fffaeb; padding:8px; color:#7a5d10; }
+  .break { break-before:page; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+</style>
+</head>
+<body>
+
+<h1>Milestone 1: SDI Data Warehouse</h1>
+<p class="sub">Intelligent Data Architectures, Fall 2026 · Phase 1: Sales &amp; Demand Intelligence (SDI) Data Mart<br>
+Repository: github.com/aafiafarooq/IDA-PROJECT</p>
+<div class="members">Group members: <i>[name, ID]</i> · <i>[name, ID]</i></div>
+
+<h2>a) Design of the Airflow pipeline</h2>
+<p>The pipeline runs in Docker (<code>docker compose up -d</code>): Apache Airflow 2.10 (LocalExecutor), a Postgres 16 database
+<code>pharma_dwh</code> for staging and monitoring, a FastAPI ingestion API and Grafana for the data engineering dashboards.
+It is fully automatic: once started, no clicks are needed.</p>
+
+<div class="flow">
+  <div class="box"><b>1. Oversampling</b>DAG <code>sdi_generate_data</code>, every 30 min, writes next quarter's CSVs</div>
+  <div class="arr">→</div>
+  <div class="box"><b>Ingestion API</b>FastAPI <code>POST /ingest/{source}</code> checks type + columns</div>
+  <div class="arr">→</div>
+  <div class="box"><b>data/incoming</b>landing folder (atomic rename)</div>
+  <div class="arr">→</div>
+  <div class="box"><b>2. File watcher</b>DAG <code>sdi_ingest_pipeline</code>, every 5 min</div>
+  <div class="arr">→</div>
+  <div class="box"><b>Validate + load</b>pandas → Postgres <code>COPY</code> → <code>staging.*</code></div>
+  <div class="arr">→</div>
+  <div class="box"><b>Monitoring</b><code>ops.*</code> tables → Grafana</div>
+  <div class="arr">→</div>
+  <div class="box next"><b>3. Transform</b>DuckDB star schema + query layer</div>
+</div>
+
+<table>
+  <tr><th>DAG / task</th><th>What it does</th></tr>
+  <tr><td><code>sdi_generate_data</code><br>(every 30 min)</td><td>First run sends the original 2023-2025 files through. Each later run generates the next 3-month period
+    (refresh 1-4 = Q1-Q4 2026). Skips if earlier files are not yet ingested and stops after refresh 4. Can be triggered by hand with <code>refresh_no</code>.</td></tr>
+  <tr><td><code>watch_incoming_folder</code></td><td>Python sensor (file watcher). Reschedule mode with soft-fail: no new file = run is <i>skipped</i>, not failed.</td></tr>
+  <tr><td><code>ingest_master</code> →<br><code>ingest_sales</code> ∥ <code>ingest_hospital_demand</code></td><td>Master (dimension) data first, then the two fact sources in parallel. Each file is validated row by row,
+    good rows are appended to staging, bad rows go to <code>ops.rejected_rows</code>, and the file moves to <code>processed/</code> or <code>failed/</code>.</td></tr>
+  <tr><td><code>record_storage_metrics</code></td><td>Row count, size (MB) and date coverage of each staging table → <code>ops.storage_metrics</code>.</td></tr>
+  <tr><td><code>staging_ready</code></td><td>Hand-over point: the DuckDB transformation and query-layer tasks run after this task.</td></tr>
+</table>
+<p><b>Validation rules:</b> MedicineID not empty (all files). Sales: valid <code>SalesDate</code>, price &gt; 0, quantity &gt; 0.
+Hospital demand: valid <code>DemandMonth</code>, HospitalID present, quantities not negative. Master: valid <code>EffectiveFromDate</code>, prices &gt; 0.
+Every staging row carries <code>batch_id</code>, <code>source_file</code> and <code>loaded_at</code> for lineage. Retries: 1 (after 1 minute).</p>
+
+<h2>b) Implementation problems and solutions</h2>
+<table>
+  <tr><th style="width:36%">Problem</th><th>Solution</th></tr>
+  <tr><td>The file watcher could pick up a file that was still being written (large sales files take seconds to write).</td>
+      <td>Generator and API write to <code>*.csv.tmp</code> and rename when complete (<code>os.replace</code>, atomic). The watcher only looks at <code>*.csv</code>.</td></tr>
+  <tr><td>Airflow retries or a re-uploaded file would insert the same rows twice.</td>
+      <td>Primary keys on every staging table. Load into a temp table, then <code>INSERT … ON CONFLICT DO NOTHING</code>. Re-loading is safe and duplicates are counted.</td></tr>
+  <tr><td>Inserting 500,000 sales rows one at a time is very slow.</td>
+      <td>Bulk load with the Postgres <code>COPY</code> command: 500k rows in 106 s, each refresh in 3-10 s.</td></tr>
+  <tr><td>The sensor marked runs as <i>failed</i> whenever the folder was empty, making the success rate look wrong.</td>
+      <td><code>soft_fail=True</code> + reschedule mode: empty runs are <i>skipped</i>, and only real load errors count as failures.</td></tr>
+  <tr><td>The generator could run faster than ingestion and files would pile up.</td>
+      <td>The generator skips its run if <code>data/incoming</code> still holds files, and works out the next refresh number from <code>ops.generation_log</code>.</td></tr>
+  <tr><td>Random new rows would lose the strong January sales peak, and changing quantities broke the money columns.</td>
+      <td>Copy the same months one year earlier (keeps seasonality), then recalculate Gross, Discount, Net, Tax, COGS and Margin from the unit price.</td></tr>
+  <tr><td>The original sales file (218 MB) is over GitHub's 100 MB limit.</td>
+      <td>Original data excluded via <code>.gitignore</code>. The generated refresh files (all &lt; 50 MB) are committed in <code>data/oversampled/</code>.</td></tr>
+  <tr><td><code>pip install</code> failed in the Airflow init container (it runs as root).</td>
+      <td>Extra packages (<code>duckdb</code>) are installed only in the webserver/scheduler containers.</td></tr>
+  <tr><td>During the first 500k-row load, Airflow's DAG file processor timed out once.</td>
+      <td>It recovered on the next parse cycle. Later loads are small so it has not happened again.</td></tr>
+</table>
+
+<h2 class="break">c) Data engineering dashboards</h2>
+<p>Both dashboards are built in <b>Grafana</b> (<code>http://localhost:3000</code>). They are provisioned from JSON files in the repository, read the
+<code>ops.*</code> tables directly and refresh every 10 seconds, so a new load appears on screen within seconds of Airflow finishing.</p>
+
+<h3>Batch ingestion dashboard</h3>
+<figure><img src="../screenshots/grafana_batch_ingestion.png" alt="Batch ingestion dashboard"><figcaption>Figure 1: SDI - Batch Ingestion (after the original load + 4 refreshes)</figcaption></figure>
+<table>
+  <tr><th style="width:30%">Metric (computation)</th><th>What it shows / the story</th></tr>
+  <tr><td><b>Batch success rate</b> = successful ÷ attempted file loads × 100</td><td>100% over 15 file loads: every batch completed without an unhandled error.</td></tr>
+  <tr><td><b>Reject rate</b> = rows rejected ÷ rows read × 100</td><td>0.05% (green below 1%). These are the deliberately broken test rows, so a small, stable rate is the expected healthy state.</td></tr>
+  <tr><td><b>Load duration per source</b> (horizontal bar) = <code>ended_at − started_at</code></td><td>Sales is by far the slowest source: the 500k original took 106 s, but the median sales load is 5.2 s and refreshes load in 3-10 s, so the pipeline scales with new data, not total data.</td></tr>
+  <tr><td><b>Rows processed per batch</b> = <code>len(df)</code>, split into loaded / rejected / duplicate</td><td>Shows the January peak: refresh 1 (Q1) has 112k sales rows vs 18-30k for later quarters.</td></tr>
+  <tr><td><b>Rejected rows by reason</b> (malformed record count)</td><td>373 rows rejected, exactly the number of rows the generator broke on purpose (0.2%). Validation caught all of them, and no valid row was rejected.</td></tr>
+  <tr><td><b>Rows generated per refresh</b></td><td>Output of the oversampling layer per quarter, for comparison with rows loaded.</td></tr>
+</table>
+
+<h3>Storage &amp; staging dashboard</h3>
+<figure><img src="../screenshots/grafana_storage.png" alt="Storage dashboard"><figcaption>Figure 2: SDI - Storage &amp; Staging</figcaption></figure>
+<table>
+  <tr><th style="width:30%">Metric (computation)</th><th>What it shows / the story</th></tr>
+  <tr><td><b>Table row count</b> = <code>SELECT COUNT(*)</code></td><td>715k staged rows. Sales is 95% of rows (donut) and 96% of storage (bar), so it is where indexing and partitioning matter most.</td></tr>
+  <tr><td><b>Storage footprint</b> = <code>pg_total_relation_size</code> / <code>pg_database_size</code></td><td>446 MB database (table + indexes).</td></tr>
+  <tr><td><b>Date coverage span</b> = <code>MAX(date) − MIN(date)</code></td><td>Jan 2023 to Dec 2026: the original 2023-2025 range is complete and each refresh extends it by one quarter.</td></tr>
+  <tr><td><b>Cumulative rows after each load</b></td><td>Staging only grows (R0 → R4): new data is appended, history is never replaced, as a DWH requires.</td></tr>
+</table>
+<p><b>Streaming ingestion:</b> the Phase 1 sources are batch files. The streaming dashboard will be built with the IoT sensor data (07) in Phase 3.</p>
+
+<h2 class="break">d) Problem-solving approach for the DWH</h2>
+<div class="placeholder"><b>To be written by Aafia:</b> business requirements, the star schema (facts, dimensions, SCD Type 1/2, role-playing
+dimensions), the DuckDB transformation and the query layer with timings.</div>
+
+<h2>e) Oversampling strategy</h2>
+<p>The source data ends in December 2025. To simulate a live pipeline, the generator adds <b>one new quarter of business activity per refresh</b>
+(refresh 1-4 = Jan-Mar, Apr-Jun, Jul-Sep, Oct-Dec 2026). Old data is never replaced. Four refreshes exceed the required two, so the mart can be refreshed twice in each milestone.</p>
+<ul>
+  <li><b>Seasonality kept:</b> new sales and hospital demand copy the <i>same months one year earlier</i> and shift the dates forward a year.</li>
+  <li><b>Realistic variation:</b> sales quantity ±15%, transaction count ±5%, hospital demand quantities ±10%. Approved ≤ Requested and Received ≤ Approved still hold.</li>
+  <li><b>Business rules kept:</b> Gross = price × qty, Net = Gross − Discount, Margin = Net − COGS (recalculated).</li>
+  <li><b>SCD Type 2 test:</b> 5 medicines per refresh get a 3-10% price rise as a new master row with a new <code>EffectiveFromDate</code>.</li>
+  <li><b>Validation test:</b> ~0.2% of rows deliberately broken (empty MedicineID, invalid date, negative price or quantity).</li>
+  <li><b>New unique keys</b> per refresh (<code>SALE-R1-00000001</code>, <code>HDEM-R1-000001</code>), so they never clash with existing keys.</li>
+</ul>
+<p><b>Why this much data:</b> each refresh is one real quarter, so volumes follow the real monthly pattern rather than an arbitrary number.
+This makes the dashboard changes after each refresh visible and realistic.</p>
+<table>
+  <tr><th>Source</th><th class="n">Original 2023-25</th><th class="n">R1 Q1 2026</th><th class="n">R2 Q2</th><th class="n">R3 Q3</th><th class="n">R4 Q4</th><th class="n">In staging</th></tr>
+  <tr><td>Master (price versions)</td><td class="n">63</td><td class="n">5</td><td class="n">5</td><td class="n">5</td><td class="n">5</td><td class="n">83</td></tr>
+  <tr><td>Pharmacy sales</td><td class="n">500,000</td><td class="n">112,794</td><td class="n">18,737</td><td class="n">17,575</td><td class="n">30,273</td><td class="n">679,022</td></tr>
+  <tr><td>Hospital demand</td><td class="n">27,216</td><td class="n">2,268</td><td class="n">2,268</td><td class="n">2,268</td><td class="n">2,268</td><td class="n">36,272</td></tr>
+</table>
+<p>The generated files and a full data dictionary (123 columns: type, meaning, how each column was generated, validation rule) are in
+<code>ida-sdi-pipeline/data/oversampled/</code>.</p>
+
+<p><b>Assumptions:</b> Phase 1 uses files 01, 05 and 06 only. One refresh every 30 minutes stands in for a quarter of real time. No new medicines, hospitals or
+pharmacies are created, only new transactions and price changes. Rejected rows are kept for review, not auto-corrected.</p>
+
+</body>
+</html>

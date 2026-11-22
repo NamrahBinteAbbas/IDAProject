@@ -1,5 +1,7 @@
 # data files are too big for GitHub (sales file is 218 MB, GitHub limit is 100 MB)
 data/**/*.csv
+# ...except the generated (oversampled) refresh files, which are all under 50 MB
+!data/oversampled/**/*.csv
 data/**/*.tmp
 logs/*
 !logs/.gitkeep

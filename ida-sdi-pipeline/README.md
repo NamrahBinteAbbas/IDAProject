@@ -1,4 +1,4 @@
-# IDA Project – Phase 1: Sales & Demand Intelligence (SDI) pipeline
+# IDA Project, Phase 1: Sales & Demand Intelligence (SDI) pipeline
 
 Part 1 of the pipeline: **data generator → file watcher → Postgres staging**.
 Aafia's transformation (DuckDB star schema) and the query layer plug in after the
@@ -10,8 +10,8 @@ Aafia's transformation (DuckDB star schema) and the query layer plug in after th
 | `docker-compose.yaml` | Starts Airflow, our Postgres database (`pharma-db`) and the ingestion API |
 | `api/main.py` | Data Ingestion API: upload new CSV files into the pipeline |
 | `sql/init_staging.sql` | Creates the `staging` tables and `ops` monitoring tables (runs automatically) |
-| `dags/sdi_generate_data_dag.py` | DAG 1 – oversampling layer, runs every 30 min (makes data for the next period) |
-| `dags/sdi_ingest_pipeline_dag.py` | DAG 2 – file watcher + validation + load into staging (runs every 5 min) |
+| `dags/sdi_generate_data_dag.py` | DAG 1: oversampling layer, runs every 30 min (makes data for the next period) |
+| `dags/sdi_ingest_pipeline_dag.py` | DAG 2: file watcher + validation + load into staging (runs every 5 min) |
 | `dags/sdi_lib/generate_data.py` | Generator logic |
 | `dags/sdi_lib/ingest.py` | Validation + loading logic + monitoring |
 | `dags/sdi_lib/storage_metrics.py` | Records table sizes, row counts and date coverage |
@@ -24,7 +24,7 @@ Aafia's transformation (DuckDB star schema) and the query layer plug in after th
    ```
    docker compose up -d
    ```
-   First time takes ~5–10 minutes (downloads Airflow).
+   First time takes ~5-10 minutes (downloads Airflow).
 4. Open http://localhost:8080 → user `airflow`, password `airflow`.
 
 ## Running the pipeline (fully automatic)
@@ -49,6 +49,19 @@ Open **http://localhost:8000/docs** for a web page where you can try every endpo
 
 Flow: API receives file -> `data/incoming` -> Airflow file watcher -> validation -> Postgres staging.
 The automatic generator writes into the same folder, so both routes go through the same checks.
+
+## Data engineering dashboards (Grafana)
+Open **http://localhost:3000** (viewing needs no login, `admin` / `admin` to edit).
+Both dashboards are set up automatically from `grafana/` and refresh every 10 seconds,
+so they update on screen as soon as Airflow loads a new file.
+
+| Dashboard | Shows | Source tables |
+|---|---|---|
+| **SDI - Batch Ingestion** | Batch success rate %, reject rate %, median sales load time, load duration per source and per file, rows processed per batch (loaded / rejected / duplicate), rejected rows by reason, rows generated per refresh, load log | `ops.batch_load_log`, `ops.rejected_rows`, `ops.generation_log` |
+| **SDI - Storage & Staging** | Total staged rows, database size (MB), share of rows per source (donut), storage MB per table (bar), date coverage per table, cumulative row growth after each refresh | `ops.storage_metrics`, `ops.batch_load_log` |
+
+To change a dashboard: edit it in the browser, then **Share → Export → Save to file** and
+replace the JSON in `grafana/dashboards/`.
 
 ## Looking at the data
 Connect any SQL tool (pgAdmin, DBeaver, VS Code, Power BI) to:
@@ -75,12 +88,12 @@ Every staging row has `batch_id` (which run loaded it), `source_file` and `loade
 
 ## Data generation logic (for the report)
 - Each refresh = one new 3-month period after the original data (ends Dec 2025):
-  refresh 1 = Jan–Mar 2026, 2 = Apr–Jun, 3 = Jul–Sep, 4 = Oct–Dec 2026.
+  refresh 1 = Jan-Mar 2026, 2 = Apr-Jun, 3 = Jul-Sep, 4 = Oct-Dec 2026.
 - Sales and hospital demand copy the same months from one year earlier (keeps
   seasonality, e.g. the January spike), shift dates forward, change quantities
   by ±15% (sales) / ±10% (demand), and recalculate money columns so
   Net = Gross − Discount and Margin = Net − COGS still hold.
-- Master: 5 medicines per refresh get a 3–10% price increase from the period
+- Master: 5 medicines per refresh get a 3-10% price increase from the period
   start (tests SCD Type 2).
 - ~0.2% of generated rows are broken on purpose (empty MedicineID, invalid date,
   negative price/quantity) so validation and the rejected-rows metric are tested.
@@ -93,7 +106,7 @@ Tested result (original + 2 refreshes):
 | Sales rows generated | 500,000 | 112,794 (225 rejected) | 18,737 (37 rejected) |
 | Hospital demand rows | 27,216 | 2,268 (4 rejected) | 2,268 (4 rejected) |
 
-Sales load (500k rows) ≈ 15–20 s.
+Sales load (500k rows) ≈ 15-20 s.
 
 ## Useful check commands (run in this folder)
 Load results per file:
@@ -110,8 +123,18 @@ docker exec -i ida-sdi-pipeline-pharma-db-1 psql -U pharma -d pharma_dwh < sql/i
 ```
 (In PowerShell use: `Get-Content sql/indexes.sql | docker exec -i ida-sdi-pipeline-pharma-db-1 psql -U pharma -d pharma_dwh`)
 
+## Oversampled data + data dictionary
+`data/oversampled/` holds the generated files for each refresh (`refresh_1_2026_Q1` … `refresh_4_2026_Q4`,
+3 CSVs each) and the data dictionary `data_dictionary.csv` (opens in Excel): every column's type,
+meaning, example, how it was generated and its validation rule.
+About 0.2% of generated rows are broken on purpose (empty MedicineID, invalid date, negative price or
+quantity) to test validation. They are rejected at load time and logged in `ops.rejected_rows`.
+
 ## Report
-`docs/Data_Generation_Report.pdf` – data generation logic, statistics, ingestion method, assumptions.
+- `docs/Data_Generation_Report.pdf`: data generation logic, statistics, ingestion method, assumptions.
+- `docs/report/Milestone.1.SDI.DWH.Report_DRAFT.pdf`: Milestone 1 report draft (pipeline design, problems,
+  dashboards, oversampling; DWH section to be added). Source: `docs/report/Milestone1_Report_Draft.html`.
+- `docs/screenshots/`: Grafana dashboard screenshots.
 
 ## Stop / reset
 - Stop: `docker compose down` (data kept)
