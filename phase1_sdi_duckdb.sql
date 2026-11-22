@@ -215,7 +215,7 @@ LEFT JOIN map_dosage_form m ON lower(trim(r.DosageForm)) = lower(m.raw_form);
 CREATE OR REPLACE VIEW stg_sales AS
 SELECT
   trim(s.SalesTransactionID)                                 AS SalesTransactionID,
-  TRY_CAST(s.SalesDate AS DATE)                              AS SaleDate,
+  COALESCE(TRY_CAST(s.SalesDate AS DATE), CAST(TRY_STRPTIME(s.SalesDate, '%m/%d/%Y') AS DATE)) AS SaleDate,
   trim(s.SalesChannel)                                       AS SalesChannel,
   -- Reconcile 3 business reporting channels: Retail vs Hospital vs E-commerce
   CASE 
